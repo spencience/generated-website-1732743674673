@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Space Shooter</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.70.0/phaser.min.js"></script>
+<style>
+        body {
+            margin: 0;
+            background: #111;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Courier New', monospace;
+        }
+        #game-container {
+            box-shadow: 0 0 20px rgba(0,255,255,0.3);
+        }
+    </style>
+</head>
+<body>
+<div id="game-container"></div>
+<script>
+        const config = {
+            type: Phaser.AUTO,
+            width: 800,
+            height: 600,
+            backgroundColor: '#000033',
+            parent: 'game-container',
+            physics: {
+                default: 'arcade',
+                arcade: {
+                    gravity: { y: 0 },
+                    debug: false
+                }
+            },
+            scene: {
+                preload: preload,
+                create: create,
+                update: update
+            }
+        };
+
+        const game = new Phaser.Game(config);
+
+        let player;
+        let bullets;
+        let enemies;
+        let cursors;
+        let score = 0;
+        let scoreText;
+        let gameOver = false;
+        let fireButton;
+        let lastFired = 0;
+        let powerups;
+        let shield = false;
+        let shieldSprite;
+
+        function preload() {
+            // Create pixel art shapes programmatically
+            const graphics = this.add.graphics();
+            
+            // Player ship texture
+            graphics.fillStyle(0x00ff00);
+            graphics.fillTriangle(0, 30, 15, 0, 30, 30);
+            graphics.generateTexture('player', 30, 30);
+            
+            // Bullet texture
+            graphics.clear();
+            graphics.fillStyle(0x00ffff);
+            graphics.fillRect(0, 0, 4, 12);
+            graphics.generateTexture('bullet', 4, 12);
+            
+            // Enemy texture
+            graphics.clear();
+            graphics.fillStyle(0xff0000);
+            graphics.fillRect(0, 0, 20, 20);
+            graphics.generateTexture('enemy', 20, 20);
+            
+            // Powerup texture
+            graphics.clear();
+            graphics.fillStyle(0xffff00);
+            graphics.fillCircle(10, 10, 8);
+            graphics.generateTexture('powerup', 20, 20);
+            
+            graphics.destroy();
+        }
+
+        function create() {
+            player = this.physics.add.sprite(400, 550, 'player');
+            player.setCollideWorldBounds(true);
+
+            bullets = this.physics.add.group({
+                classType: Phaser.Physics.Arcade.Image,
+                defaultKey: 'bullet',
+                maxSize: 30
+            });
+
+            enemies = this.physics.add.group({
+                classType: Phaser.Physics.Arcade.Image,
+                defaultKey: 'enemy',
+                maxSize: 50
+            });
+
+            powerups = this.physics.add.group({
+                classType: Phaser.Physics.Arcade.Image,
+                defaultKey: 'powerup',
+                maxSize: 5
+            });
+
+            cursors = this.input.keyboard.createCursorKeys();
+            fireButton = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+
+            scoreText = this.add.text(16, 16, 'Score: 0', { 
+                fontSize: '32px', 
+                fill: '#fff' 
+            });
+
+            // Spawn enemies
+            this.time.addEvent({
+                delay: 1000,
+                callback: spawnEnemy,
+                callbackScope: this,
+                loop: true
+            });
+
+            // Spawn powerups
+            this.time.addEvent({
+                delay: 10000,
+                callback: spawnPowerup,
+                callbackScope: this,
+                loop: true
+            });
+
+            // Collisions
+            this.physics.add.overlap(bullets, enemies, bulletHitEnemy, null, this);
+            this.physics.add.overlap(player, enemies, enemyHitPlayer, null, this);
+            this.physics.add.overlap(player, powerups, collectPowerup, null, this);
+        }
+
+        function update(time) {
+            if (gameOver) {
+                return;
+            }
+
+            // Player movement
+            if (cursors.left.isDown) {
+                player.setVelocityX(-300);
+            } else if (cursors.right.isDown) {
+                player.setVelocityX(300);
+            } else {
+                player.setVelocityX(0);
+            }
+
+            // Firing
+            if (fireButton.isDown && time > lastFired) {
+                const bullet = bullets.get();
+                if (bullet) {
+                    bullet.setPosition(player.x, player.y - 20);
+                    bullet.setVelocityY(-400);
+                    lastFired = time + 200;
+                }
+            }
+
+            // Cleanup off-screen objects
+            bullets.children.each(bullet => {
+                if (bullet.active && bullet.y < -10) {
+                    bullet.destroy();
+                }
+            });
+
+            enemies.children.each(enemy => {
+                if (enemy.active && enemy.y > 610) {
+                    enemy.destroy();
+                }
+            });
+        }
+
+        function spawnEnemy() {
+            const x = Phaser.Math.Between(20, 780);
+            const enemy = enemies.get();
+            if (enemy) {
+                enemy.setPosition(x, -20);
+                enemy.setVelocityY(100);
+            }
+        }
+
+        function spawnPowerup() {
+            const x = Phaser.Math.Between(20, 780);
+            const powerup = powerups.get();
+            if (powerup) {
+                powerup.setPosition(x, -20);
+                powerup.setVelocityY(50);
+            }
+        }
+
+        function bulletHitEnemy(bullet, enemy) {
+            bullet.destroy();
+            enemy.destroy();
+            score += 10;
+            scoreText.setText('Score: ' + score);
+        }
+
+        function enemyHitPlayer(player, enemy) {
+            if (!shield) {
+                this.physics.pause();
+                player.setTint(0xff0000);
+                gameOver = true;
+                this.add.text(400, 300, 'Game Over\nClick to restart', {
+                    fontSize: '64px',
+                    fill: '#fff',
+                    align: 'center'
+                }).setOrigin(0.5);
+                this.input.on('pointerdown', () => {
+                    this.scene.restart();
+                    score = 0;
+                    gameOver = false;
+                    shield = false;
+                });
+            } else {
+                enemy.destroy();
+                shield = false;
+                if (shieldSprite) {
+                    shieldSprite.destroy();
+                }
+            }
+        }
+
+        function collectPowerup(player, powerup) {
+            powerup.destroy();
+            shield = true;
+            if (shieldSprite) {
+                shieldSprite.destroy();
+            }
+            shieldSprite = this.add.circle(player.x, player.y, 25, 0x00ffff, 0.3);
+            this.time.delayedCall(5000, () => {
+                shield = false;
+                if (shieldSprite) {
+                    shieldSprite.destroy();
+                }
+            });
+        }
+    </script>
+</body>
+</html>
